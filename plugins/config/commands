@@ -49,13 +49,13 @@ config_styled_hash () {
 }
 
 config_restart_app() {
-  APP="$1"; IMAGE="app/$APP"
+  APP="$1";
 
   echo "-----> Releasing $APP ..."
-  dokku release $APP $IMAGE
+  dokku release $APP
   echo "-----> Release complete!"
   echo "-----> Deploying $APP ..."
-  dokku deploy $APP $IMAGE
+  dokku deploy $APP
   echo "-----> Deploy complete!"
 }
 
@@ -78,7 +78,7 @@ case "$1" in
       fi
     done
 
-    echo "=== $APP Config Vars"
+    echo "=== $APP config vars ==="
     config_styled_hash "$VARS"
   ;;
 
@@ -108,7 +108,6 @@ case "$1" in
     APP="$2"; APP_DIR="$DOKKU_ROOT/$APP"
     ENV_ADD=""
     ENV_TEMP=`cat "${ENV_FILE}"`
-    ID=$(< "$APP_DIR/CONTAINER")
     RESTART=false
     VARS="${*:3}"
 
@@ -151,7 +150,6 @@ case "$1" in
 
     APP="$2"; APP_DIR="$DOKKU_ROOT/$APP"
     ENV_TEMP=`cat "${ENV_FILE}"`
-    ID=$(< "$APP_DIR/CONTAINER")
     VARS="${*:3}"
 
     for var in $VARS; do
@@ -173,4 +171,4 @@ EOF
   ;;
 
 esac
-cat
+

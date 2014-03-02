@@ -13,11 +13,14 @@ case "$1" in
     fi
 
     pluginhook pre-delete $APP
-    ID=$(< "$DOKKU_ROOT/$APP/CONTAINER")
+    if [[ -f "$DOKKU_ROOT/$APP/CONTAINER" ]]; then
+      ID=$(< "$DOKKU_ROOT/$APP/CONTAINER")
 
-    docker stop $ID > /dev/null
+      docker stop $ID > /dev/null || true
+      docker rm $ID  > /dev/null || true
+    fi
+
     docker images | grep $IMAGE | awk '{print $3}' | xargs docker rmi &> /dev/null &
-    docker rm $ID  > /dev/null
 
     pluginhook post-delete $APP
     ;;
@@ -32,11 +35,16 @@ case "$1" in
         echo "App $APP does not exist"
         exit 1
     fi
-      
-    CONTAINER=$(<$DOKKU_ROOT/$APP/CONTAINER)
-    docker logs $CONTAINER | tail -n 100
-    if [[ $3 == "-t" ]]; then
-      docker attach $CONTAINER
+
+    if [[ -f "$DOKKU_ROOT/$APP/CONTAINER" ]]; then
+      CONTAINER=$(<$DOKKU_ROOT/$APP/CONTAINER)
+      if [[ $3 == "-t" ]]; then
+        docker logs --follow $CONTAINER
+      else
+        docker logs $CONTAINER | tail -n 100
+      fi
+    else
+      echo "Application's container not found"
     fi
     ;;
 
@@ -51,7 +59,9 @@ case "$1" in
         exit 1
     fi
     shift 2
-    docker run -i -t $IMAGE /exec "$@"
+
+    DOCKER_ARGS=$(: | pluginhook docker-args $APP)
+    docker run -i -t $DOCKER_ARGS $IMAGE /exec "$@"
     ;;
 
   url)
@@ -66,14 +76,22 @@ case "$1" in
     fi
     ;;
 
+  version)
+    cat "$DOKKU_ROOT/VERSION" || {
+      echo "Unable to determine dokku's version" 2>&1
+      exit 1
+    }
+    ;;
+
   help)
     cat && cat<<EOF
     delete <app>                                    Delete an application
     logs <app> [-t]                                 Show the last logs for an application (-t follows)
     run <app> <cmd>                                 Run a command in the environment of an application
     url <app>                                       Show the URL for an application
+    version                                         Print dokku's version
 EOF
     ;;
 
 esac
-cat
+
