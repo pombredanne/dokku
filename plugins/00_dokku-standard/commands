@@ -1,40 +1,33 @@
 #!/usr/bin/env bash
 set -eo pipefail; [[ $DOKKU_TRACE ]] && set -x
+
 case "$1" in
+  trace)
+    [[ -d $DOKKU_ROOT/.dokkurc ]] || mkdir -p $DOKKU_ROOT/.dokkurc
+    [[ "$2" == "on" ]] || [[ "$2" == "off" ]] || {
+      echo "Valid trace options are [on/off]"
+      exit 1
+    }
+
+    if [[ "$2" == "on" ]]; then
+      echo "Enabling dokku trace"
+      echo "export DOKKU_TRACE=1" > $DOKKU_ROOT/.dokkurc/DOKKU_TRACE
+    fi
+
+    if [[ "$2" == "off" ]]; then
+      echo "Disabling dokku trace"
+      rm -f $DOKKU_ROOT/.dokkurc/DOKKU_TRACE
+    fi
+    ;;
+
   delete)
-    if [[ -z $2 ]]; then
-        echo "Please specify an app to delete"
-        exit 1
-    fi
-    APP="$2"; IMAGE="app/$APP";
-    if [[ ! -d "$DOKKU_ROOT/$APP" ]]; then
-        echo "App does not exist"
-        exit 1
-    fi
-
-    pluginhook pre-delete $APP
-    if [[ -f "$DOKKU_ROOT/$APP/CONTAINER" ]]; then
-      ID=$(< "$DOKKU_ROOT/$APP/CONTAINER")
-
-      docker stop $ID > /dev/null || true
-      docker rm $ID  > /dev/null || true
-    fi
-
-    docker images | grep $IMAGE | awk '{print $3}' | xargs docker rmi &> /dev/null &
-
-    pluginhook post-delete $APP
+    dokku apps:destroy $2
     ;;
 
   logs)
-    if [[ -z $2 ]]; then
-        echo "Please specify an app to run the command on"
-        exit 1
-    fi
+    [[ -z $2 ]] && echo "Please specify an app to run the command on" && exit 1
+    [[ ! -d "$DOKKU_ROOT/$2" ]] && echo "App $2 does not exist" && exit 1
     APP="$2";
-    if [[ ! -d "$DOKKU_ROOT/$APP" ]]; then
-        echo "App $APP does not exist"
-        exit 1
-    fi
 
     if [[ -f "$DOKKU_ROOT/$APP/CONTAINER" ]]; then
       CONTAINER=$(<$DOKKU_ROOT/$APP/CONTAINER)
@@ -49,32 +42,42 @@ case "$1" in
     ;;
 
   run)
-    if [[ -z $2 ]]; then
-        echo "Please specify an app to run the command on"
-        exit 1
-    fi
-    APP="$2"; IMAGE="app/$APP"
-    if [[ ! -d "$DOKKU_ROOT/$APP" ]]; then
-        echo "App $APP does not exist"
-        exit 1
-    fi
+    [[ -z $2 ]] && echo "Please specify an app to run the command on" && exit 1
+    [[ ! -d "$DOKKU_ROOT/$2" ]] && echo "App $2 does not exist" && exit 1
+    APP="$2"; IMAGE="dokku/$APP"
+
     shift 2
 
-    DOCKER_ARGS=$(: | pluginhook docker-args $APP)
+    DOCKER_ARGS=$(: | pluginhook docker-args $APP run)
     docker run -i -t $DOCKER_ARGS $IMAGE /exec "$@"
     ;;
 
-  url)
-    APP="$2";
-    if [[ ! -d "$DOKKU_ROOT/$APP" ]]; then
-        echo "App $APP does not exist"
-        exit 1
+  url | urls)
+    [[ -z $2 ]] && echo "Please specify an app to run the command on" && exit 1
+    [[ ! -d "$DOKKU_ROOT/$2" ]] && echo "App $2 does not exist" && exit 1
+    APP="$2"; SCHEME="http"; SSL="$DOKKU_ROOT/$APP/tls"; WILDCARD_SSL="$DOKKU_ROOT/tls"
+
+    if [[ -e "$SSL/server.crt" && -e "$SSL/server.key" ]] || [[ -e "$WILDCARD_SSL/server.crt" && -e "$WILDCARD_SSL/server.key" ]]; then
+      SCHEME="https"
     fi
 
-    if [[ -f "$DOKKU_ROOT/$APP/URL" ]]; then
-      echo $(< "$DOKKU_ROOT/$APP/URL")
+    if [[ -f "$DOKKU_ROOT/$APP/VHOST" ]]; then
+      case "$1" in
+        url)
+          echo "$SCHEME://$(head -n1 "$DOKKU_ROOT/$APP/VHOST")"
+        ;;
+        urls)
+          for vhost in $(< "$DOKKU_ROOT/$APP/VHOST"); do
+            echo "$SCHEME://$vhost"
+          done
+        ;;
+      esac
+    elif [[ -f "$DOKKU_ROOT/VHOST" ]]; then
+      echo "$SCHEME://$(< "$DOKKU_ROOT/VHOST")"
+    else
+      echo "$SCHEME://$(< "$DOKKU_ROOT/HOSTNAME"):$(< "$DOKKU_ROOT/$APP/PORT")"
     fi
-    ;;
+  ;;
 
   version)
     cat "$DOKKU_ROOT/VERSION" || {
@@ -85,13 +88,16 @@ case "$1" in
 
   help)
     cat && cat<<EOF
-    delete <app>                                    Delete an application
     logs <app> [-t]                                 Show the last logs for an application (-t follows)
     run <app> <cmd>                                 Run a command in the environment of an application
-    url <app>                                       Show the URL for an application
+    url <app>                                       Show the first URL for an application (compatibility)
+    urls <app>                                      Show all URLs for an application
     version                                         Print dokku's version
 EOF
     ;;
 
-esac
+  *)
+    exit $DOKKU_NOT_IMPLEMENTED_EXIT
+    ;;
 
+esac
